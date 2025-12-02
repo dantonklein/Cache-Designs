@@ -1,0 +1,17 @@
+tag: identifies where the block in the line came from
+block: data
+word id width dictates how many columns in the block section there is
+
+typically block id bits drive the tag
+
+fully associative
+store block ID as tag
+
+replacement algorithm to toss out specific tags to make space for new ones
+
+fifo algorithm: thing thats been in there the longest needs to be taken out
+
+lru: least recently used: replace the block thats been least recently used
+
+direct mapping: full address: tag | line ID | word
+the bits in the line id correspond to the position in the cache
