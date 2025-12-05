@@ -18,7 +18,7 @@ module direct_mapped #(
     output logic[ADDRESS_WIDTH-1:0] ram_address,
     output logic ram_rd, ram_wr,
     output logic[31:0] ram_data_wr,
-
+    output logic[3:0] ram_byte_enable,
     //interface with device
     
     output logic[31:0] cache_data_out,
@@ -140,6 +140,7 @@ always_ff @(posedge clk or posedge rst) begin
         ram_rd <= 0;
         ram_wr <= 0;
         ram_data_wr <= 0;
+        ram_byte_enable <= 0;
     end else begin
         //default values
         cache_ready <= 0;
@@ -181,7 +182,7 @@ always_ff @(posedge clk or posedge rst) begin
                 ram_wr <= 1;
                 ram_address <= {tag_out, index_r, line_count, 2'b00};
                 ram_data_wr <= word_array[index_r][line_count];
-
+                ram_byte_enable <= 4'b1111;
                 if(ram_ready) begin
                     if(line_count == WORDS_PER_LINE -1) begin
                         ram_wr <= 0;
@@ -195,9 +196,35 @@ always_ff @(posedge clk or posedge rst) begin
             FETCH: begin
                 //fill line buffer with values from ram
                 ram_rd <= 1;
+                ram_address <= {address_tag_r, index_r, line_count, 2'b00};
+
+                if(ram_ready) begin
+                    line_buffer[line_count] <= ram_data_rd;
+                    if(line_count == WORDS_PER_LINE -1) begin
+                        ram_rd <= 0;
+                        state_r <= UPDATE_CACHE;
+                    end else begin
+                        line_count <= line_count + 1;
+                    end
+                end
             end
             UPDATE_CACHE: begin
+                word_array[index_r] <= line_buffer;
+                tag_array[index_r] <= address_tag_r;
+                valid_array[index_r] <= 1;
+                dirty_array[index_r] <= 0;
 
+                if(cache_rd_r) begin
+                    cache_ready <= 1;
+                    cache_data_out <= line_buffer[word_offset_r];
+                end else if(cache_wr_r) begin
+                    for (int i = 0; i < 4; i++) begin
+                        if(cache_byte_enable_r[i]) word_array[index_r][word_offset_r][((i+1)*8)-1:8*i] <= cache_data_wr_r[((i+1)*8)-1:8*i];
+                    end
+                    dirty_array[index_r] <= 1;
+                    cache_ready <= 1;
+                end
+                state_r <= IDLE;
             end
         endcase
     end
