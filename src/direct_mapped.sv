@@ -19,8 +19,8 @@ module direct_mapped #(
     output logic ram_rd, ram_wr,
     output logic[31:0] ram_data_wr,
     output logic[3:0] ram_byte_enable,
+
     //interface with device
-    
     output logic[31:0] cache_data_out,
     output logic cache_ready,
     input logic[ADDRESS_WIDTH-1:0] cache_address,
@@ -136,7 +136,7 @@ always_ff @(posedge clk or posedge rst) begin
         cache_data_out <= 0;
 
         //ram signals
-        ram_address <= 0
+        ram_address <= 0;
         ram_rd <= 0;
         ram_wr <= 0;
         ram_data_wr <= 0;
@@ -158,9 +158,10 @@ always_ff @(posedge clk or posedge rst) begin
                 //cpu attempts to write
                 end else if(cache_wr_r) begin
                     if(cache_hit) begin
-                        for (int i = 0; i < 4; i++) begin
-                            if(cache_byte_enable_r[i]) word_array[index_r][word_offset_r][((i+1)*8)-1:8*i] <= cache_data_wr_r[((i+1)*8)-1:8*i];
-                        end
+                        if(cache_byte_enable_r[0]) word_array[index_r][word_offset_r][7:0] <= cache_data_wr_r[7:0];
+                        if(cache_byte_enable_r[1]) word_array[index_r][word_offset_r][15:8] <= cache_data_wr_r[15:8];
+                        if(cache_byte_enable_r[2]) word_array[index_r][word_offset_r][23:16] <= cache_data_wr_r[23:16];
+                        if(cache_byte_enable_r[3]) word_array[index_r][word_offset_r][31:24] <= cache_data_wr_r[31:24];
                         dirty_array[index_r] <= 1;
                         cache_ready <= 1;
                     end else begin
@@ -219,7 +220,10 @@ always_ff @(posedge clk or posedge rst) begin
                     cache_data_out <= line_buffer[word_offset_r];
                 end else if(cache_wr_r) begin
                     for (int i = 0; i < 4; i++) begin
-                        if(cache_byte_enable_r[i]) word_array[index_r][word_offset_r][((i+1)*8)-1:8*i] <= cache_data_wr_r[((i+1)*8)-1:8*i];
+                        if(cache_byte_enable_r[0]) word_array[index_r][word_offset_r][7:0] <= cache_data_wr_r[7:0];
+                        if(cache_byte_enable_r[1]) word_array[index_r][word_offset_r][15:8] <= cache_data_wr_r[15:8];
+                        if(cache_byte_enable_r[2]) word_array[index_r][word_offset_r][23:16] <= cache_data_wr_r[23:16];
+                        if(cache_byte_enable_r[3]) word_array[index_r][word_offset_r][31:24] <= cache_data_wr_r[31:24];
                     end
                     dirty_array[index_r] <= 1;
                     cache_ready <= 1;
