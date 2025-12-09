@@ -8,17 +8,16 @@ module direct_mapped #(
 
     parameter int ADDRESS_WIDTH = 16,
     parameter int INDEX_WIDTH = 3,
-    parameter int WORD_OFFSET_WIDTH = 2
+    parameter int WORD_OFFSET_WIDTH = 2 //value cant be zero
 ) (
     input logic clk, rst,
 
     //interface with external ram
     input logic[31:0] ram_data_rd, 
-    input logic ram_ready,
+    input logic ram_data_valid,
     output logic[ADDRESS_WIDTH-1:0] ram_address,
     output logic ram_rd, ram_wr,
     output logic[31:0] ram_data_wr,
-    output logic[3:0] ram_byte_enable,
 
     //interface with device
     output logic[31:0] cache_data_out,
@@ -32,6 +31,7 @@ localparam int TAG_WIDTH = ADDRESS_WIDTH - INDEX_WIDTH - WORD_OFFSET_WIDTH - 2; 
 
 initial begin
     if (TAG_WIDTH < 1) $fatal(1, "Address is too small for index width and word_offset_width");
+    if (WORD_OFFSET_WIDTH < 1) $fatal(1, "Word_Offset_Width ");
 end
 
 localparam NUM_LINES = 2 ** INDEX_WIDTH;
@@ -46,6 +46,11 @@ logic[31:0] word_array [NUM_LINES][WORDS_PER_LINE];
 
 logic[31:0] line_buffer [WORDS_PER_LINE];
 logic[WORD_OFFSET_WIDTH-1:0] line_count;
+
+logic[WORD_OFFSET_WIDTH-1:0] line_width_zero, line_count_plus_one;
+assign line_count_plus_one = line_count + 1;
+assign line_width_zero = 0;
+
 //address breakdown
 logic [TAG_WIDTH-1:0] address_tag;
 logic [INDEX_WIDTH-1:0] index;
@@ -69,10 +74,49 @@ logic [1:0] byte_offset_r;
 logic cache_rd_r, cache_wr_r;
 logic[3:0] cache_byte_enable_r;
 
+//main finite state machine
+typedef enum logic[2:0] {
+    IDLE1,
+    IDLE2,
+    CHECK_INDEX,
+    WRITEBACK,
+    FETCH,
+    UPDATE_CACHE
+} state_t;
+
+state_t state_r;
+
 //delay writing data
 logic[31:0] cache_data_wr_r;
+
+
+logic cache_hit;
+assign cache_hit = valid_out && (tag_out == address_tag_r);
+
+
+//state machine
 always_ff @(posedge clk or posedge rst) begin
     if(rst) begin
+        state_r <= IDLE1;
+
+        for(int i = 0; i < NUM_LINES; i++) begin
+            dirty_array[i] <= 0;
+            valid_array[i] <= 0;
+            tag_array[i] <= 0;
+        end
+        line_count <= 0;
+
+        //cache signals
+        cache_ready <= 0;
+        cache_data_out <= 0;
+
+        //ram signals
+        ram_address <= 0;
+        ram_rd <= 0;
+        ram_wr <= 0;
+        ram_data_wr <= 0;
+
+        //registered cache inputs
         valid_out <= 0;
         dirty_out <= 0;
         tag_out <= 0;
@@ -88,70 +132,51 @@ always_ff @(posedge clk or posedge rst) begin
         cache_data_wr_r <= 0;
         cache_byte_enable_r <= 0;
     end else begin
-        valid_out <= valid_array[index];
-        dirty_out <= dirty_array[index];
-        tag_out <= tag_array[index];
-        data_out <= word_array[index][word_offset];
-
-        address_tag_r <= address_tag;
-        index_r <= index;
-        word_offset_r <= word_offset;
-        byte_offset_r <= byte_offset;
-
-        cache_rd_r <= cache_rd;
-        cache_wr_r <= cache_wr;
-        cache_data_wr_r <= cache_data_wr;
-        cache_byte_enable_r <= cache_byte_enable;
-    end
-end
-
-
-logic cache_hit;
-assign cache_hit = valid_out && (tag_out == address_tag_r);
-
-//main finite state machine
-typedef enum logic[2:0] {
-    IDLE,
-    CHECK_INDEX,
-    WRITEBACK,
-    FETCH,
-    UPDATE_CACHE
-} state_t;
-
-state_t state_r;
-
-//state machine
-always_ff @(posedge clk or posedge rst) begin
-    if(rst) begin
-        state_r <= IDLE;
-
-        for(int i = 0; i < NUM_LINES; i++) begin
-            dirty_array[i] <= 0;
-            valid_array[i] <= 0;
-        end
-        line_count <= 0;
-
-        //cache signals
-        cache_ready <= 0;
-        cache_data_out <= 0;
-
-        //ram signals
-        ram_address <= 0;
-        ram_rd <= 0;
-        ram_wr <= 0;
-        ram_data_wr <= 0;
-        ram_byte_enable <= 0;
-    end else begin
         //default values
         cache_ready <= 0;
         case(state_r)
-            IDLE: begin
+            IDLE1: begin
+                if(cache_rd | cache_wr) begin
+                    valid_out <= valid_array[index];
+                    dirty_out <= dirty_array[index];
+                    tag_out <= tag_array[index];
+                    data_out <= word_array[index][word_offset];
+
+                    address_tag_r <= address_tag;
+                    index_r <= index;
+                    word_offset_r <= word_offset;
+                    byte_offset_r <= byte_offset;
+
+                    cache_rd_r <= cache_rd;
+                    cache_wr_r <= cache_wr;
+                    cache_data_wr_r <= cache_data_wr;
+                    cache_byte_enable_r <= cache_byte_enable;
+                    state_r <= IDLE2;
+                end
+            end
+            IDLE2: begin
 
                 //cpu attempts to read
                 if(cache_rd_r) begin
                     if(cache_hit) begin
                         cache_ready <= 1;
                         cache_data_out <= data_out;
+                        if(cache_rd | cache_wr) begin
+                            valid_out <= valid_array[index];
+                            dirty_out <= dirty_array[index];
+                            tag_out <= tag_array[index];
+                            data_out <= word_array[index][word_offset];
+
+                            address_tag_r <= address_tag;
+                            index_r <= index;
+                            word_offset_r <= word_offset;
+                            byte_offset_r <= byte_offset;
+
+                            cache_rd_r <= cache_rd;
+                            cache_wr_r <= cache_wr;
+                            cache_data_wr_r <= cache_data_wr;
+                            cache_byte_enable_r <= cache_byte_enable;
+                        end else state_r <= IDLE1;
                     end else begin
                         state_r <= CHECK_INDEX;
                     end
@@ -164,6 +189,22 @@ always_ff @(posedge clk or posedge rst) begin
                         if(cache_byte_enable_r[3]) word_array[index_r][word_offset_r][31:24] <= cache_data_wr_r[31:24];
                         dirty_array[index_r] <= 1;
                         cache_ready <= 1;
+                        if(cache_rd | cache_wr) begin
+                            valid_out <= valid_array[index];
+                            dirty_out <= dirty_array[index];
+                            tag_out <= tag_array[index];
+                            data_out <= word_array[index][word_offset];
+
+                            address_tag_r <= address_tag;
+                            index_r <= index;
+                            word_offset_r <= word_offset;
+                            byte_offset_r <= byte_offset;
+
+                            cache_rd_r <= cache_rd;
+                            cache_wr_r <= cache_wr;
+                            cache_data_wr_r <= cache_data_wr;
+                            cache_byte_enable_r <= cache_byte_enable;
+                        end else state_r <= IDLE1;
                     end else begin
                         state_r <= CHECK_INDEX;
                     end
@@ -175,38 +216,47 @@ always_ff @(posedge clk or posedge rst) begin
                 
                 if(valid_out && dirty_out) begin
                     state_r <= WRITEBACK;
+                    ram_wr <= 1;
+                    ram_address <= {tag_out, index_r, line_width_zero, 2'b00};
+                    ram_data_wr <= word_array[index_r][line_width_zero];
                 end else begin
                     state_r <= FETCH;
+                    ram_rd <= 1;
+                    ram_address <= {address_tag_r, index_r, line_width_zero, 2'b00};
                 end
             end
             WRITEBACK: begin
-                ram_wr <= 1;
-                ram_address <= {tag_out, index_r, line_count, 2'b00};
+                ram_wr <= ram_data_valid; //only write when ram is ready (ram is not pipelineable)
+                //ram_address <= {tag_out, index_r, line_count, 2'b00};
                 ram_data_wr <= word_array[index_r][line_count];
-                ram_byte_enable <= 4'b1111;
-                if(ram_ready) begin
-                    if(line_count == WORDS_PER_LINE -1) begin
+                if(ram_data_valid) begin
+                    if(line_count == WORDS_PER_LINE-1) begin
                         ram_wr <= 0;
                         state_r <= FETCH;
                         line_count <= 0;
+                        ram_rd <= 1;
+                        ram_address <= {address_tag_r, index_r, line_width_zero, 2'b00};
                     end else begin
-                        line_count <= line_count + 1;
+                        line_count <= line_count_plus_one;
                     end
+                    ram_address <= {tag_out, index_r, line_count_plus_one, 2'b00};
                 end
             end
             FETCH: begin
                 //fill line buffer with values from ram
-                ram_rd <= 1;
-                ram_address <= {address_tag_r, index_r, line_count, 2'b00};
+                ram_rd <= ram_data_valid; //only read when ram is ready (ram is not pipelineable)
+                //ram_address <= {address_tag_r, index_r, line_count, 2'b00};
 
-                if(ram_ready) begin
+                //line_count <= line_count + ram_data_valid;
+
+                if(ram_data_valid) begin
                     line_buffer[line_count] <= ram_data_rd;
-                    if(line_count == WORDS_PER_LINE -1) begin
+                    if(line_count == WORDS_PER_LINE-1) begin
                         ram_rd <= 0;
                         state_r <= UPDATE_CACHE;
-                    end else begin
-                        line_count <= line_count + 1;
                     end
+                    line_count <= line_count_plus_one;
+                    ram_address <= {tag_out, index_r, line_count_plus_one, 2'b00};
                 end
             end
             UPDATE_CACHE: begin
@@ -219,16 +269,31 @@ always_ff @(posedge clk or posedge rst) begin
                     cache_ready <= 1;
                     cache_data_out <= line_buffer[word_offset_r];
                 end else if(cache_wr_r) begin
-                    for (int i = 0; i < 4; i++) begin
-                        if(cache_byte_enable_r[0]) word_array[index_r][word_offset_r][7:0] <= cache_data_wr_r[7:0];
-                        if(cache_byte_enable_r[1]) word_array[index_r][word_offset_r][15:8] <= cache_data_wr_r[15:8];
-                        if(cache_byte_enable_r[2]) word_array[index_r][word_offset_r][23:16] <= cache_data_wr_r[23:16];
-                        if(cache_byte_enable_r[3]) word_array[index_r][word_offset_r][31:24] <= cache_data_wr_r[31:24];
-                    end
+                    if(cache_byte_enable_r[0]) word_array[index_r][word_offset_r][7:0] <= cache_data_wr_r[7:0];
+                    if(cache_byte_enable_r[1]) word_array[index_r][word_offset_r][15:8] <= cache_data_wr_r[15:8];
+                    if(cache_byte_enable_r[2]) word_array[index_r][word_offset_r][23:16] <= cache_data_wr_r[23:16];
+                    if(cache_byte_enable_r[3]) word_array[index_r][word_offset_r][31:24] <= cache_data_wr_r[31:24];
                     dirty_array[index_r] <= 1;
                     cache_ready <= 1;
                 end
-                state_r <= IDLE;
+                //figure out logic for when new read/write requests come in
+                if(cache_rd | cache_wr) begin
+                    valid_out <= valid_array[index];
+                    dirty_out <= dirty_array[index];
+                    tag_out <= tag_array[index];
+                    data_out <= word_array[index][word_offset];
+
+                    address_tag_r <= address_tag;
+                    index_r <= index;
+                    word_offset_r <= word_offset;
+                    byte_offset_r <= byte_offset;
+
+                    cache_rd_r <= cache_rd;
+                    cache_wr_r <= cache_wr;
+                    cache_data_wr_r <= cache_data_wr;
+                    cache_byte_enable_r <= cache_byte_enable;
+                    state_r <= IDLE2;
+                end else state_r <= IDLE1;
             end
         endcase
     end
