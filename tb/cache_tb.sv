@@ -110,7 +110,6 @@ module cache_tb;
 
         //test 3: second read from meory
         cache_address <= 16'hA840;
-        cache_byte_enable <= 4'b1111;
         cache_rd <= 1;
         @(posedge clk);
         cache_rd <= 0;
@@ -118,7 +117,6 @@ module cache_tb;
 
         //test 4: read hit 
         cache_address <= 16'h002C;
-        cache_byte_enable <= 4'b1111;
         cache_rd <= 1;
         @(posedge clk);
         //cache_rd <= 0;
@@ -126,7 +124,6 @@ module cache_tb;
 
         //test 5: read hit right after read hit(test pipeline)
         cache_address <= 16'hA844;
-        cache_byte_enable <= 4'b1111;
         cache_rd <= 1;
         @(posedge clk);
         cache_rd <= 0;
@@ -152,6 +149,18 @@ module cache_tb;
         cache_wr <= 0;
         @(posedge cache_ready);
         @(posedge clk);
+
+        //test 8: read from same line but different address from test 7 to test dirty data being saved and replaced
+        cache_address <= 16'h5630;
+        cache_rd <= 1;
+        @(posedge clk);
+        cache_rd <= 0;
+        @(posedge cache_ready);
+        @(posedge clk);
+
+        //test 9: do nothing and see if cache stays in idle state
+        repeat(5) @(posedge clk);
+
         disable generate_clock;
     end
 endmodule

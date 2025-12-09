@@ -228,7 +228,7 @@ always_ff @(posedge clk or posedge rst) begin
             WRITEBACK: begin
                 ram_wr <= ram_data_valid; //only write when ram is ready (ram is not pipelineable)
                 //ram_address <= {tag_out, index_r, line_count, 2'b00};
-                ram_data_wr <= word_array[index_r][line_count];
+                //ram_data_wr <= word_array[index_r][line_count];
                 if(ram_data_valid) begin
                     if(line_count == WORDS_PER_LINE-1) begin
                         ram_wr <= 0;
@@ -238,8 +238,9 @@ always_ff @(posedge clk or posedge rst) begin
                         ram_address <= {address_tag_r, index_r, line_width_zero, 2'b00};
                     end else begin
                         line_count <= line_count_plus_one;
+                        ram_address <= {tag_out, index_r, line_count_plus_one, 2'b00};
+                        ram_data_wr <= word_array[index_r][line_count_plus_one];
                     end
-                    ram_address <= {tag_out, index_r, line_count_plus_one, 2'b00};
                 end
             end
             FETCH: begin
@@ -256,7 +257,7 @@ always_ff @(posedge clk or posedge rst) begin
                         state_r <= UPDATE_CACHE;
                     end
                     line_count <= line_count_plus_one;
-                    ram_address <= {tag_out, index_r, line_count_plus_one, 2'b00};
+                    ram_address <= {address_tag_r, index_r, line_count_plus_one, 2'b00};
                 end
             end
             UPDATE_CACHE: begin
