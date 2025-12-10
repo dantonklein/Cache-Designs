@@ -47,7 +47,7 @@ module simulated_ram #(
 
 endmodule
 
-module cache_tb;
+module direct_mapped_cache_tb;
 
     localparam int ADDRESS_WIDTH = 16;
     localparam int INDEX_WIDTH = 3;

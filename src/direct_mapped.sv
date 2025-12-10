@@ -31,7 +31,7 @@ localparam int TAG_WIDTH = ADDRESS_WIDTH - INDEX_WIDTH - WORD_OFFSET_WIDTH - 2; 
 
 initial begin
     if (TAG_WIDTH < 1) $fatal(1, "Address is too small for index width and word_offset_width");
-    if (WORD_OFFSET_WIDTH < 1) $fatal(1, "Word_Offset_Width ");
+    if (WORD_OFFSET_WIDTH < 1) $fatal(1, "Word_Offset_Width too small, why are you even using a cache lol");
 end
 
 localparam NUM_LINES = 2 ** INDEX_WIDTH;
@@ -73,6 +73,8 @@ logic [1:0] byte_offset_r;
 //delay read/write
 logic cache_rd_r, cache_wr_r;
 logic[3:0] cache_byte_enable_r;
+//delay writing data
+logic[31:0] cache_data_wr_r;
 
 //main finite state machine
 typedef enum logic[2:0] {
@@ -85,10 +87,6 @@ typedef enum logic[2:0] {
 } state_t;
 
 state_t state_r;
-
-//delay writing data
-logic[31:0] cache_data_wr_r;
-
 
 logic cache_hit;
 assign cache_hit = valid_out && (tag_out == address_tag_r);
