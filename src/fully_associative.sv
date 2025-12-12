@@ -97,9 +97,57 @@ logic[NUM_LINES_WIDTH-1:0] hit_line;
 priority_encoder_parameterized #(.WIDTH(NUM_LINES_WIDTH)) which_tag (.in(tag_matches_r), .result(hit_line));
 
 //LRU STUFF
-//I will be doing a tree-based pseudo-lru
+//I will be doing a tree-based pseudo-lru. the tree is organized as follows:
+//bit 0: root
+//bits 1 and 2: connected to bit 0
+//bits 3 and 4: connected to bit 1
+//bits 5 and 6: connected to bit 2
 
+//upon cache write, all nodes of the tree will have their bits updated (bit 0 means its pointing left and bit 1 means its pointing right)
+//the 8 bits of the cache index go from 0->7
 
+//upon updating the cache after a miss, you need to also update the plru tree
+logic fill_enable;
+
+//update tree based on cache writes
+logic [6:0] plru_tree;
+
+//victim and hit index
+logic [2:0] victim_index;
+
+always_comb begin
+    victim_index[2] = ~plru_tree[0];
+
+    if(victim_index[2]) victim_index[1] = ~plru_tree[2];
+    else victim_index[1] = ~plru_tree[1];
+
+    case(victim_index[2:1])
+        2'b00: victim_index[0] = ~plru_tree[3];
+        2'b01: victim_index[0] = ~plru_tree[4];
+        2'b10: victim_index[0] = ~plru_tree[5];
+        2'b11: victim_index[0] = ~plru_tree[6];
+    endcase
+end
+
+always @(posedge clk or posedge rst) begin
+    if(rst) plru_tree <= 0;
+    else if(cache_hit_r || fill_enable) begin
+        logic[2:0] new_index;
+        new_index = cache_hit_r ? hit_line : victim_index;
+
+        plru_tree[0] <= new_index[2];
+
+        if(new_index[2]) plru_tree[2] <= new_index[1];
+        else plru_tree[1] <= new_index[1];
+
+        case (new_index[2:1]) 
+            2'b00: plru_tree[3] <= new_index[0];
+            2'b01: plru_tree[4] <= new_index[0];
+            2'b10: plru_tree[5] <= new_index[0];
+            2'b11: plru_tree[6] <= new_index[0];
+        endcase
+    end
+end
 
 //main finite state machine
 typedef enum logic[2:0] {
