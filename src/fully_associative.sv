@@ -67,10 +67,11 @@ logic [WORD_OFFSET_WIDTH-1:0] word_offset_r;
 logic [1:0] byte_offset_r;
 
 //delay read/write
-logic cache_rd_r, cache_wr_r;
-logic[3:0] cache_byte_enable_r;
+logic cache_rd_r, cache_rd_r2; 
+logic cache_wr_r, cache_wr_r2;
+logic[3:0] cache_byte_enable_r, cache_byte_enable_r2;
 //delay writing data
-logic[31:0] cache_data_wr_r;
+logic[31:0] cache_data_wr_r, cache_data_wr_r2;
 
 
 //fully associative stuff
@@ -112,21 +113,38 @@ logic fill_enable;
 //update tree based on cache writes
 logic [6:0] plru_tree;
 
-//victim and hit index
-logic [2:0] victim_index;
+//victim, invalid index
+logic [2:0] victim_index, invalid_index;
+
+//victim index holds the spot in the cache that will be replaced
+//invalid index holds the spot in the cache that will be replaced initially before all data becomes valid
+
+logic any_invalids;
+logic[7:0] invalids;
 
 always_comb begin
-    victim_index[2] = ~plru_tree[0];
+    for (int i = 0; i < 8; i++) begin
+        invalids[i] = ~valid_out[i];
+    end
+    any_invalids = | invalids;
+end
 
-    if(victim_index[2]) victim_index[1] = ~plru_tree[2];
-    else victim_index[1] = ~plru_tree[1];
+always_comb begin
+    if(any_invalids) begin
+        victim_index = invalid_index;
+    end else begin
+        victim_index[2] = ~plru_tree[0];
 
-    case(victim_index[2:1])
-        2'b00: victim_index[0] = ~plru_tree[3];
-        2'b01: victim_index[0] = ~plru_tree[4];
-        2'b10: victim_index[0] = ~plru_tree[5];
-        2'b11: victim_index[0] = ~plru_tree[6];
-    endcase
+        if(victim_index[2]) victim_index[1] = ~plru_tree[2];
+        else victim_index[1] = ~plru_tree[1];
+
+        case(victim_index[2:1])
+            2'b00: victim_index[0] = ~plru_tree[3];
+            2'b01: victim_index[0] = ~plru_tree[4];
+            2'b10: victim_index[0] = ~plru_tree[5];
+            2'b11: victim_index[0] = ~plru_tree[6];
+        endcase
+    end
 end
 
 always @(posedge clk or posedge rst) begin
