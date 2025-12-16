@@ -1,7 +1,7 @@
-
-module fully_associative #(
+module eight_way_set_associative #(
 
     parameter int ADDRESS_WIDTH = 16,
+    parameter int INDEX_WIDTH = 4,
     parameter int WORD_OFFSET_WIDTH = 2 //value cant be zero
 ) (
     input logic clk, rst,
@@ -21,10 +21,9 @@ module fully_associative #(
     input logic[3:0] cache_byte_enable,
     input logic[31:0] cache_data_wr
 );
-localparam int TAG_WIDTH = ADDRESS_WIDTH - WORD_OFFSET_WIDTH - 2; //byte addressable
-localparam int NUM_LINES_WIDTH = 3;
+localparam int TAG_WIDTH = ADDRESS_WIDTH - INDEX_WIDTH - WORD_OFFSET_WIDTH - 2; //byte addressable
 
-//This cache will have 8 lines
+localparam NUM_SETS = 2 ** INDEX_WIDTH;
 
 initial begin
     if (TAG_WIDTH < 1) $fatal(1, "Address is too small for index width and word_offset_width");
@@ -32,12 +31,12 @@ initial begin
 end
 
 //dirty bit array, valid bit array, tag array, word array
-logic dirty_array [8]; //indicates if the lie has been modified and needs to be written to memory when evicted
-logic valid_array [8]; //indicates if the line has valid data
-logic[TAG_WIDTH-1:0] tag_array [8]; //holds each tag
+logic dirty_array [NUM_SETS][8]; //indicates if the lie has been modified and needs to be written to memory when evicted
+logic valid_array [NUM_SETS][8]; //indicates if the line has valid data
+logic[TAG_WIDTH-1:0] tag_array [NUM_SETS][8]; //holds each tag
 
 localparam WORDS_PER_LINE = 2 ** WORD_OFFSET_WIDTH;
-logic[31:0] word_array [8][WORDS_PER_LINE];
+logic[31:0] word_array [NUM_SETS][8][WORDS_PER_LINE];
 
 logic[31:0] line_buffer [WORDS_PER_LINE];
 logic[WORD_OFFSET_WIDTH-1:0] line_count;
@@ -48,9 +47,10 @@ assign line_width_zero = 0;
 
 //address breakdown
 logic [TAG_WIDTH-1:0] address_tag;
+logic [INDEX_WIDTH-1:0] index;
 logic [WORD_OFFSET_WIDTH-1:0] word_offset;
 logic [1:0] byte_offset;
-assign {address_tag, word_offset, byte_offset} = cache_address;
+assign {address_tag, index, word_offset, byte_offset} = cache_address;
 
 //delay by one cycle for tag comparison, valid check, dirty bit check, for all lines
 logic valid_out [8];
@@ -60,6 +60,7 @@ logic[31:0] data_out [8];
 
 //delay address by one cycle too
 logic [TAG_WIDTH-1:0] address_tag_r;
+logic [INDEX_WIDTH-1:0] index_r;
 logic [WORD_OFFSET_WIDTH-1:0] word_offset_r;
 logic [1:0] byte_offset_r;
 
@@ -84,7 +85,7 @@ endgenerate
 
 assign cache_hit = | tag_matches;
 
-logic[NUM_LINES_WIDTH-1:0] hit_line;
+logic[2:0] hit_line;
 
 //priority encoder for determining which line hit
 priority_encoder_parameterized #(.WIDTH(8)) which_tag (.in(tag_matches), .result(hit_line));
@@ -103,7 +104,7 @@ priority_encoder_parameterized #(.WIDTH(8)) which_tag (.in(tag_matches), .result
 logic fill_enable;
 
 //update tree based on cache writes
-logic [6:0] plru_tree;
+logic [6:0] plru_tree[NUM_SETS];
 
 //victim, invalid index
 logic [2:0] victim_index, invalid_index;
@@ -127,36 +128,40 @@ always_comb begin
     if(any_invalids) begin
         victim_index = invalid_index;
     end else begin
-        victim_index[2] = ~plru_tree[0];
+        victim_index[2] = ~plru_tree[index_r][0];
 
-        if(victim_index[2]) victim_index[1] = ~plru_tree[2];
-        else victim_index[1] = ~plru_tree[1];
+        if(victim_index[2]) victim_index[1] = ~plru_tree[index_r][2];
+        else victim_index[1] = ~plru_tree[index_r][1];
 
         case(victim_index[2:1])
-            2'b00: victim_index[0] = ~plru_tree[3];
-            2'b01: victim_index[0] = ~plru_tree[4];
-            2'b10: victim_index[0] = ~plru_tree[5];
-            2'b11: victim_index[0] = ~plru_tree[6];
+            2'b00: victim_index[0] = ~plru_tree[index_r][3];
+            2'b01: victim_index[0] = ~plru_tree[index_r][4];
+            2'b10: victim_index[0] = ~plru_tree[index_r][5];
+            2'b11: victim_index[0] = ~plru_tree[index_r][6];
         endcase
     end
 end
 
 always @(posedge clk or posedge rst) begin
-    if(rst) plru_tree <= 0;
+    if(rst) begin
+        for(int i = 0; i < 7; i++) begin
+            plru_tree[index_r][i] <= 0;
+        end
+    end
     else if(cache_hit || fill_enable) begin
         logic[2:0] new_index;
         new_index = cache_hit ? hit_line : victim_index;
 
-        plru_tree[0] <= new_index[2];
+        plru_tree[index_r][0] <= new_index[2];
 
-        if(new_index[2]) plru_tree[2] <= new_index[1];
-        else plru_tree[1] <= new_index[1];
+        if(new_index[2]) plru_tree[index_r][2] <= new_index[1];
+        else plru_tree[index_r][1] <= new_index[1];
 
         case (new_index[2:1]) 
-            2'b00: plru_tree[3] <= new_index[0];
-            2'b01: plru_tree[4] <= new_index[0];
-            2'b10: plru_tree[5] <= new_index[0];
-            2'b11: plru_tree[6] <= new_index[0];
+            2'b00: plru_tree[index_r][3] <= new_index[0];
+            2'b01: plru_tree[index_r][4] <= new_index[0];
+            2'b10: plru_tree[index_r][5] <= new_index[0];
+            2'b11: plru_tree[index_r][6] <= new_index[0];
         endcase
     end
 end
@@ -177,11 +182,12 @@ state_t state_r;
 always_ff @(posedge clk or posedge rst) begin
     if(rst) begin
         state_r <= IDLE1;
-
-        for(int i = 0; i < 8; i++) begin
-            dirty_array[i] <= 0;
-            valid_array[i] <= 0;
-            tag_array[i] <= 0;
+        for(int i = 0; i < NUM_SETS; i++) begin
+            for(int j = 0; j < 8; j++) begin
+                dirty_array[i][j] <= 0;
+                valid_array[i][j] <= 0;
+                tag_array[i][j] <= 0;
+            end
         end
         line_count <= 0;
 
@@ -207,6 +213,7 @@ always_ff @(posedge clk or posedge rst) begin
         address_tag_r <= 0;
         word_offset_r <= 0;
         byte_offset_r <= 0;
+        index_r <= 0;
 
         //cache signals registered
         cache_rd_r <= 0;
@@ -221,15 +228,15 @@ always_ff @(posedge clk or posedge rst) begin
             IDLE1: begin
                 if(cache_rd | cache_wr) begin
                     //registered sram outputs
-                    valid_out <= valid_array;
-                    dirty_out <= dirty_array;
-                    tag_out <= tag_array;
+                    valid_out <= valid_array[index];
+                    dirty_out <= dirty_array[index];
+                    tag_out <= tag_array[index];
                     for (int i = 0; i < 8; i++) begin
-                        data_out[i] <= word_array[i][word_offset];
+                        data_out[i] <= word_array[index][i][word_offset];
                     end
-
                     //cache address needs to be delayed by a cycle for timing
                     address_tag_r <= address_tag;
+                    index_r <= index;
                     word_offset_r <= word_offset;
                     byte_offset_r <= byte_offset;
 
@@ -249,14 +256,15 @@ always_ff @(posedge clk or posedge rst) begin
                         cache_data_out <= data_out[hit_line];
                         if(cache_rd | cache_wr) begin
                             //registered sram outputs
-                            valid_out <= valid_array;
-                            dirty_out <= dirty_array;
-                            tag_out <= tag_array;
+                            valid_out <= valid_array[index];
+                            dirty_out <= dirty_array[index];
+                            tag_out <= tag_array[index];
                             for (int i = 0; i < 8; i++) begin
-                                data_out[i] <= word_array[i][word_offset];
+                                data_out[i] <= word_array[index][i][word_offset];
                             end
                             //cache address needs to be delayed by a cycle for timing
                             address_tag_r <= address_tag;
+                            index_r <= index;
                             word_offset_r <= word_offset;
                             byte_offset_r <= byte_offset;
 
@@ -271,21 +279,23 @@ always_ff @(posedge clk or posedge rst) begin
                     end
                 end else if(cache_wr_r) begin
                     if(cache_hit) begin
-                        if(cache_byte_enable_r[0]) word_array[hit_line][word_offset_r][7:0] <= cache_data_wr_r[7:0];
-                        if(cache_byte_enable_r[1]) word_array[hit_line][word_offset_r][15:8] <= cache_data_wr_r[15:8];
-                        if(cache_byte_enable_r[2]) word_array[hit_line][word_offset_r][23:16] <= cache_data_wr_r[23:16];
-                        if(cache_byte_enable_r[3]) word_array[hit_line][word_offset_r][31:24] <= cache_data_wr_r[31:24];
-                        dirty_array[hit_line] <= 1;
+                        if(cache_byte_enable_r[0]) word_array[index_r][hit_line][word_offset_r][7:0] <= cache_data_wr_r[7:0];
+                        if(cache_byte_enable_r[1]) word_array[index_r][hit_line][word_offset_r][15:8] <= cache_data_wr_r[15:8];
+                        if(cache_byte_enable_r[2]) word_array[index_r][hit_line][word_offset_r][23:16] <= cache_data_wr_r[23:16];
+                        if(cache_byte_enable_r[3]) word_array[index_r][hit_line][word_offset_r][31:24] <= cache_data_wr_r[31:24];
+                        dirty_array[index_r][hit_line] <= 1;
                         cache_done <= 1;
                         if(cache_rd | cache_wr) begin
                             //registered sram outputs
-                            valid_out <= valid_array;
-                            dirty_out <= dirty_array;
-                            tag_out <= tag_array;
-                            data_out <= word_array[word_offset];
-
+                            valid_out <= valid_array[index];
+                            dirty_out <= dirty_array[index];
+                            tag_out <= tag_array[index];
+                            for (int i = 0; i < 8; i++) begin
+                                data_out[i] <= word_array[index][i][word_offset];
+                            end
                             //cache address needs to be delayed by a cycle for timing
                             address_tag_r <= address_tag;
+                            index_r <= index;
                             word_offset_r <= word_offset;
                             byte_offset_r <= byte_offset;
 
@@ -307,12 +317,12 @@ always_ff @(posedge clk or posedge rst) begin
                 if(valid_out[victim_index] && dirty_out[victim_index]) begin
                     state_r <= WRITEBACK;
                     ram_wr <= 1;
-                    ram_address <= {tag_out[victim_index], line_width_zero, 2'b00};
-                    ram_data_wr <= word_array[victim_index][line_width_zero];
+                    ram_address <= {tag_out[victim_index], index_r, line_width_zero, 2'b00};
+                    ram_data_wr <= word_array[index_r][victim_index][line_width_zero];
                 end else begin
                     state_r <= FETCH;
                     ram_rd <= 1;
-                    ram_address <= {address_tag_r, line_width_zero, 2'b00};
+                    ram_address <= {address_tag_r, index_r, line_width_zero, 2'b00};
                 end
             end
             WRITEBACK: begin
@@ -323,11 +333,11 @@ always_ff @(posedge clk or posedge rst) begin
                         state_r <= FETCH;
                         line_count <= 0;
                         ram_rd <= 1;
-                        ram_address <= {address_tag_r, line_width_zero, 2'b00};
+                        ram_address <= {address_tag_r, index_r, line_width_zero, 2'b00};
                     end else begin
                         line_count <= line_count_plus_one;
-                        ram_address <= {tag_out[victim_index], line_count_plus_one, 2'b00};
-                        ram_data_wr <= word_array[victim_index][line_count_plus_one];
+                        ram_address <= {tag_out[victim_index], index_r, line_count_plus_one, 2'b00};
+                        ram_data_wr <= word_array[index_r][victim_index][line_count_plus_one];
                     end
                 end
             end
@@ -342,38 +352,39 @@ always_ff @(posedge clk or posedge rst) begin
                         state_r <= UPDATE_CACHE;
                     end
                     line_count <= line_count_plus_one;
-                    ram_address <= {address_tag_r, line_count_plus_one, 2'b00};
+                    ram_address <= {address_tag_r, index_r, line_count_plus_one, 2'b00};
                 end
             end
             UPDATE_CACHE: begin
                 fill_enable <= 1;
-                word_array[victim_index] <= line_buffer;
-                tag_array[victim_index] <= address_tag_r;
-                valid_array[victim_index] <= 1;
-                dirty_array[victim_index] <= 0;
+                word_array[index_r][victim_index] <= line_buffer;
+                tag_array[index_r][victim_index] <= address_tag_r;
+                valid_array[index_r][victim_index] <= 1;
+                dirty_array[index_r][victim_index] <= 0;
 
                 if(cache_rd_r) begin
                     cache_done <= 1;
                     cache_data_out <= line_buffer[word_offset_r];
                 end else if(cache_wr_r) begin
-                    if(cache_byte_enable_r[0]) word_array[victim_index][word_offset_r][7:0] <= cache_data_wr_r[7:0];
-                    if(cache_byte_enable_r[1]) word_array[victim_index][word_offset_r][15:8] <= cache_data_wr_r[15:8];
-                    if(cache_byte_enable_r[2]) word_array[victim_index][word_offset_r][23:16] <= cache_data_wr_r[23:16];
-                    if(cache_byte_enable_r[3]) word_array[victim_index][word_offset_r][31:24] <= cache_data_wr_r[31:24];
-                    dirty_array[victim_index] <= 1;
+                    if(cache_byte_enable_r[0]) word_array[index_r][victim_index][word_offset_r][7:0] <= cache_data_wr_r[7:0];
+                    if(cache_byte_enable_r[1]) word_array[index_r][victim_index][word_offset_r][15:8] <= cache_data_wr_r[15:8];
+                    if(cache_byte_enable_r[2]) word_array[index_r][victim_index][word_offset_r][23:16] <= cache_data_wr_r[23:16];
+                    if(cache_byte_enable_r[3]) word_array[index_r][victim_index][word_offset_r][31:24] <= cache_data_wr_r[31:24];
+                    dirty_array[index_r][victim_index] <= 1;
                     cache_done <= 1;
                 end
 
                 if(cache_rd | cache_wr) begin
                     //registered sram outputs
-                    valid_out <= valid_array;
-                    dirty_out <= dirty_array;
-                    tag_out <= tag_array;
+                    valid_out <= valid_array[index];
+                    dirty_out <= dirty_array[index];
+                    tag_out <= tag_array[index];
                     for (int i = 0; i < 8; i++) begin
-                        data_out[i] <= word_array[i][word_offset];
+                        data_out[i] <= word_array[index][i][word_offset];
                     end
                     //cache address needs to be delayed by a cycle for timing
                     address_tag_r <= address_tag;
+                    index_r <= index;
                     word_offset_r <= word_offset;
                     byte_offset_r <= byte_offset;
 

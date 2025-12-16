@@ -3,7 +3,7 @@
 //write-back: update the memory when the data gets evicted
 //write-allocate: fetch whole cache line when you want to write to a location
 
-//commands from device only come after cache_ready is asserted
+//commands from device only come after cache_done is asserted
 module direct_mapped #(
 
     parameter int ADDRESS_WIDTH = 16,
@@ -21,7 +21,7 @@ module direct_mapped #(
 
     //interface with device
     output logic[31:0] cache_data_out,
-    output logic cache_ready,
+    output logic cache_done,
     input logic[ADDRESS_WIDTH-1:0] cache_address,
     input logic cache_rd, cache_wr,
     input logic[3:0] cache_byte_enable,
@@ -105,7 +105,7 @@ always_ff @(posedge clk or posedge rst) begin
         line_count <= 0;
 
         //cache signals
-        cache_ready <= 0;
+        cache_done <= 0;
         cache_data_out <= 0;
 
         //ram signals
@@ -133,7 +133,7 @@ always_ff @(posedge clk or posedge rst) begin
         cache_data_wr_r <= 0;
     end else begin
         //default values
-        cache_ready <= 0;
+        cache_done <= 0;
         case(state_r)
             IDLE1: begin
                 if(cache_rd | cache_wr) begin
@@ -161,7 +161,7 @@ always_ff @(posedge clk or posedge rst) begin
                 //attempts to read
                 if(cache_rd_r) begin
                     if(cache_hit) begin
-                        cache_ready <= 1;
+                        cache_done <= 1;
                         cache_data_out <= data_out;
                         if(cache_rd | cache_wr) begin
                             valid_out <= valid_array[index];
@@ -190,7 +190,7 @@ always_ff @(posedge clk or posedge rst) begin
                         if(cache_byte_enable_r[2]) word_array[index_r][word_offset_r][23:16] <= cache_data_wr_r[23:16];
                         if(cache_byte_enable_r[3]) word_array[index_r][word_offset_r][31:24] <= cache_data_wr_r[31:24];
                         dirty_array[index_r] <= 1;
-                        cache_ready <= 1;
+                        cache_done <= 1;
                         if(cache_rd | cache_wr) begin
                             //registered sram outputs
                             valid_out <= valid_array[index];
@@ -267,7 +267,7 @@ always_ff @(posedge clk or posedge rst) begin
                 dirty_array[index_r] <= 0;
 
                 if(cache_rd_r) begin
-                    cache_ready <= 1;
+                    cache_done <= 1;
                     cache_data_out <= line_buffer[word_offset_r];
                 end else if(cache_wr_r) begin
                     if(cache_byte_enable_r[0]) word_array[index_r][word_offset_r][7:0] <= cache_data_wr_r[7:0];
@@ -275,7 +275,7 @@ always_ff @(posedge clk or posedge rst) begin
                     if(cache_byte_enable_r[2]) word_array[index_r][word_offset_r][23:16] <= cache_data_wr_r[23:16];
                     if(cache_byte_enable_r[3]) word_array[index_r][word_offset_r][31:24] <= cache_data_wr_r[31:24];
                     dirty_array[index_r] <= 1;
-                    cache_ready <= 1;
+                    cache_done <= 1;
                 end
                 //figure out logic for when new read/write requests come in
                 if(cache_rd | cache_wr) begin
