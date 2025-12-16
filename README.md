@@ -6,3 +6,6 @@ First I made a parameterized direct-mapped implementation to teach myself the ge
 I followed that up with a 8 entry fully-associative design that allowed me to learn the LRU replacement policy. I went with a tree-based pseudo LRU policy as that seems to be pretty commonly used in practice.
 
 The ultimate goal was to make an 8-way set-associative cache, which was pretty easily achieved after finishing the fully-associative cache. Fusing both concepts from the first two cache designs into one, pretty awesome.
+
+
+![Alt text](https://github.com/dantonklein/Cache-Designs/blob/master/pics/Cache%20Diagram.drawio.png)
