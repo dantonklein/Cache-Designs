@@ -1,7 +1,5 @@
-//this implementation uses true LRU with counters for its replacement policy
 
-
-module direct_mapped #(
+module fully_associative #(
 
     parameter int ADDRESS_WIDTH = 16,
     parameter int WORD_OFFSET_WIDTH = 2 //value cant be zero
@@ -28,10 +26,9 @@ localparam int NUM_LINES_WIDTH = 3;
 
 //This cache will have 8 lines
 
-
 initial begin
     if (TAG_WIDTH < 1) $fatal(1, "Address is too small for index width and word_offset_width");
-    if (WORD_OFFSET_WIDTH < 1) $fatal(1, "Word_Offset_Width too small, why are you even using a cache lol");
+    if (WORD_OFFSET_WIDTH < 1) $fatal(1, "Word_Offset_Width too small");
 end
 
 //dirty bit array, valid bit array, tag array, word array
@@ -76,7 +73,7 @@ logic[31:0] cache_data_wr_r;
 
 //fully associative stuff
 //you need a comparator for each line 
-logic[NUM_LINES_WIDTH-1:0] tag_matches;
+logic[7:0] tag_matches;
 logic cache_hit;
 
 generate
@@ -90,7 +87,7 @@ assign cache_hit = | tag_matches;
 logic[NUM_LINES_WIDTH-1:0] hit_line;
 
 //priority encoder for determining which line hit
-priority_encoder_parameterized #(.WIDTH(NUM_LINES_WIDTH)) which_tag (.in(tag_matches), .result(hit_line));
+priority_encoder_parameterized #(.WIDTH(8)) which_tag (.in(tag_matches), .result(hit_line));
 
 //LRU STUFF
 //I will be doing a tree-based pseudo-lru. the tree is organized as follows:
@@ -124,7 +121,7 @@ always_comb begin
     any_invalids = | invalids;
 end
 
-priority_encoder_parameterized #(.WIDTH(NUM_LINES_WIDTH)) which_invalid (.in(invalids), .result(invalid_index));
+priority_encoder_parameterized #(.WIDTH(8)) which_invalid (.in(invalids), .result(invalid_index));
 
 always_comb begin
     if(any_invalids) begin
@@ -148,7 +145,7 @@ always @(posedge clk or posedge rst) begin
     if(rst) plru_tree <= 0;
     else if(cache_hit || fill_enable) begin
         logic[2:0] new_index;
-        new_index = cache_hit_r ? hit_line : victim_index;
+        new_index = cache_hit ? hit_line : victim_index;
 
         plru_tree[0] <= new_index[2];
 
@@ -214,8 +211,8 @@ always_ff @(posedge clk or posedge rst) begin
         //cache signals registered
         cache_rd_r <= 0;
         cache_wr_r <= 0;
-        cache_data_wr_r <= 0;
         cache_byte_enable_r <= 0;
+        cache_data_wr_r <= 0;
     end else begin
         //default values
         cache_ready <= 0;
@@ -227,7 +224,9 @@ always_ff @(posedge clk or posedge rst) begin
                     valid_out <= valid_array;
                     dirty_out <= dirty_array;
                     tag_out <= tag_array;
-                    data_out <= word_array[word_offset];
+                    for (int i = 0; i < 8; i++) begin
+                        data_out[i] <= word_array[i][word_offset];
+                    end
 
                     //cache address needs to be delayed by a cycle for timing
                     address_tag_r <= address_tag;
@@ -240,12 +239,9 @@ always_ff @(posedge clk or posedge rst) begin
                     cache_data_wr_r <= cache_data_wr;
                     cache_byte_enable_r <= cache_byte_enable;
                     state_r <= IDLE2;
-                    cache_ready <= 0;
                 end
-                else cache_ready <= 1;
             end
             IDLE2: begin
-
                 //attempts to read
                 if(cache_rd_r) begin
                     if(cache_hit) begin
@@ -256,8 +252,9 @@ always_ff @(posedge clk or posedge rst) begin
                             valid_out <= valid_array;
                             dirty_out <= dirty_array;
                             tag_out <= tag_array;
-                            data_out <= word_array[word_offset];
-
+                            for (int i = 0; i < 8; i++) begin
+                                data_out[i] <= word_array[i][word_offset];
+                            end
                             //cache address needs to be delayed by a cycle for timing
                             address_tag_r <= address_tag;
                             word_offset_r <= word_offset;
@@ -310,7 +307,7 @@ always_ff @(posedge clk or posedge rst) begin
                 if(valid_out[hit_line] && dirty_out[hit_line]) begin
                     state_r <= WRITEBACK;
                     ram_wr <= 1;
-                    ram_address <= {tag_out, line_width_zero, 2'b00};
+                    ram_address <= {tag_out[hit_line], line_width_zero, 2'b00};
                     ram_data_wr <= word_array[hit_line][line_width_zero];
                 end else begin
                     state_r <= FETCH;
@@ -329,7 +326,7 @@ always_ff @(posedge clk or posedge rst) begin
                         ram_address <= {address_tag_r, line_width_zero, 2'b00};
                     end else begin
                         line_count <= line_count_plus_one;
-                        ram_address <= {tag_out, line_count_plus_one, 2'b00};
+                        ram_address <= {tag_out[hit_line], line_count_plus_one, 2'b00};
                         ram_data_wr <= word_array[hit_line][line_count_plus_one];
                     end
                 end
@@ -372,8 +369,9 @@ always_ff @(posedge clk or posedge rst) begin
                     valid_out <= valid_array;
                     dirty_out <= dirty_array;
                     tag_out <= tag_array;
-                    data_out <= word_array[word_offset];
-
+                    for (int i = 0; i < 8; i++) begin
+                        data_out[i] <= word_array[i][word_offset];
+                    end
                     //cache address needs to be delayed by a cycle for timing
                     address_tag_r <= address_tag;
                     word_offset_r <= word_offset;
@@ -387,9 +385,6 @@ always_ff @(posedge clk or posedge rst) begin
                     state_r <= IDLE2;
                 end else state_r <= IDLE1;
             end
-                        
-
-
         endcase
     end
 end

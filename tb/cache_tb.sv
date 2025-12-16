@@ -70,7 +70,6 @@ module direct_mapped_cache_tb;
     logic[3:0] cache_byte_enable;
     logic[31:0] cache_data_wr;
 
-
     initial begin : generate_clock
         clk = 1'b0;
         forever #5 clk <= ~clk;
@@ -163,4 +162,144 @@ module direct_mapped_cache_tb;
 
         disable generate_clock;
     end
+endmodule
+
+module fully_associative_cache_tb;
+
+    localparam int ADDRESS_WIDTH = 16;
+    localparam int WORD_OFFSET_WIDTH = 2;
+
+    logic clk, rst;
+
+    //interface with external ram
+    logic[31:0] ram_data_rd;
+    logic ram_data_valid;
+    logic[ADDRESS_WIDTH-1:0] ram_address;
+    logic ram_rd, ram_wr;
+    logic[31:0] ram_data_wr;
+
+    //interface with device
+    logic[31:0] cache_data_out;
+    logic cache_ready;
+    logic[ADDRESS_WIDTH-1:0] cache_address;
+    logic cache_rd, cache_wr;
+    logic[3:0] cache_byte_enable;
+    logic[31:0] cache_data_wr;
+
+    initial begin : generate_clock
+        clk = 1'b0;
+        forever #5 clk <= ~clk;
+    end
+
+    fully_associative #(.ADDRESS_WIDTH(ADDRESS_WIDTH), .WORD_OFFSET_WIDTH(WORD_OFFSET_WIDTH)) DUT (.*);
+    simulated_ram #(.ADDRESS_WIDTH(ADDRESS_WIDTH)) DUT_RAM (.*);
+
+    initial begin
+        //default values
+        rst <= 1;
+
+        cache_address <= 0;
+        cache_rd <= 0;
+        cache_wr <= 0;
+        cache_byte_enable <= 0;
+        cache_data_wr <= 0;
+        @(posedge clk);
+        rst <= 0;
+        @(posedge clk);
+
+        //test 1: fill cache with values from memory
+        for(int i = 0; i < 8; i++) begin
+            cache_address <= 16'h0000 + (i << 4);
+            cache_byte_enable <= 4'b1111;
+            cache_rd <= 1;
+            @(posedge clk);
+            cache_rd <= 0;
+            @(posedge cache_ready);
+        end
+        
+        //test 2: do a few read hits
+        cache_address <= 16'h0040;
+        cache_byte_enable <= 4'b1111;
+        cache_rd <= 1;
+        @(posedge clk);
+        cache_rd <= 0;
+        @(posedge cache_ready);
+
+        cache_address <= 16'h0020;
+        cache_byte_enable <= 4'b1111;
+        cache_rd <= 1;
+        @(posedge clk);
+        cache_rd <= 0;
+        @(posedge cache_ready);
+
+        cache_address <= 16'h0060;
+        cache_byte_enable <= 4'b1111;
+        cache_rd <= 1;
+        @(posedge clk);
+        cache_rd <= 0;
+        @(posedge cache_ready);
+
+        //test 3: write hits
+        cache_address <= 16'h0070;
+        cache_byte_enable <= 4'b1111;
+        cache_wr <= 1;
+        cache_data_wr <= 16'h1234;
+        @(posedge clk);
+        cache_wr <= 0;
+        @(posedge cache_ready);
+
+        cache_address <= 16'h0020;
+        cache_byte_enable <= 4'b1111;
+        cache_wr <= 1;
+        cache_data_wr <= 16'h5678;
+        @(posedge clk);
+        cache_wr <= 0;
+        @(posedge cache_ready);
+
+        cache_address <= 16'h0060;
+        cache_byte_enable <= 4'b1111;
+        cache_wr <= 1;
+        cache_data_wr <= 16'h9abc;
+        @(posedge clk);
+        cache_wr <= 0;
+        @(posedge cache_ready);
+
+        //test 4: write miss
+        cache_address <= 16'h0170;
+        cache_byte_enable <= 4'b1111;
+        cache_wr <= 1;
+        cache_data_wr <= 16'hB00B;
+        @(posedge clk);
+        cache_wr <= 0;
+        @(posedge cache_ready);
+
+        //test 5: test a few read misses to see plru behavior
+        cache_address <= 16'h0140;
+        cache_byte_enable <= 4'b1111;
+        cache_rd <= 1;
+        @(posedge clk);
+        cache_rd <= 0;
+        @(posedge cache_ready);
+
+        cache_address <= 16'h0220;
+        cache_byte_enable <= 4'b1111;
+        cache_rd <= 1;
+        @(posedge clk);
+        cache_rd <= 0;
+        @(posedge cache_ready);
+
+        cache_address <= 16'h0360;
+        cache_byte_enable <= 4'b1111;
+        cache_rd <= 1;
+        @(posedge clk);
+        cache_rd <= 0;
+        @(posedge cache_ready);
+
+
+        //test 6: do nothing and see if cache stays in idle state
+        repeat(5) @(posedge clk);
+
+        disable generate_clock;
+    end
+
 endmodule

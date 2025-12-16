@@ -2,7 +2,7 @@ module priority_encoder_parameterized #(
     parameter int WIDTH = 8
 ) (
     input logic[WIDTH-1:0] in,
-    output logic valid,
+    //output logic valid,
     output logic [$clog2(WIDTH)-1:0] result
 );
 localparam int RESULT_WIDTH = $clog2(WIDTH);
@@ -13,17 +13,17 @@ initial begin
 end
 
 if(WIDTH == 1) begin
-    assign valid = in;
+    //assign valid = in;
     assign result = 0;
 end
 else begin
     always_comb begin
-        valid = 1'b0;
+        //valid = 1'b0;
         result = '0;
         for (int i = WIDTH-1; i >= 0; i--) begin
             if(in[i] == 1'b1) begin
                 result = RESULT_WIDTH'(i);
-                valid = 1'b1;
+                //valid = 1'b1;
                 break;
             end
         end

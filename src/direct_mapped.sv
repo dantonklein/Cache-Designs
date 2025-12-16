@@ -129,8 +129,8 @@ always_ff @(posedge clk or posedge rst) begin
         //cache signals registered
         cache_rd_r <= 0;
         cache_wr_r <= 0;
-        cache_data_wr_r <= 0;
         cache_byte_enable_r <= 0;
+        cache_data_wr_r <= 0;
     end else begin
         //default values
         cache_ready <= 0;
@@ -155,12 +155,9 @@ always_ff @(posedge clk or posedge rst) begin
                     cache_data_wr_r <= cache_data_wr;
                     cache_byte_enable_r <= cache_byte_enable;
                     state_r <= IDLE2;
-                    cache_ready <= 0;
                 end
-                else cache_ready <= 1;
             end
             IDLE2: begin
-
                 //attempts to read
                 if(cache_rd_r) begin
                     if(cache_hit) begin
@@ -195,16 +192,19 @@ always_ff @(posedge clk or posedge rst) begin
                         dirty_array[index_r] <= 1;
                         cache_ready <= 1;
                         if(cache_rd | cache_wr) begin
+                            //registered sram outputs
                             valid_out <= valid_array[index];
                             dirty_out <= dirty_array[index];
                             tag_out <= tag_array[index];
                             data_out <= word_array[index][word_offset];
 
+                            //cache address needs to be delayed by a cycle for timing
                             address_tag_r <= address_tag;
                             index_r <= index;
                             word_offset_r <= word_offset;
                             byte_offset_r <= byte_offset;
 
+                            //same with the cache control signals
                             cache_rd_r <= cache_rd;
                             cache_wr_r <= cache_wr;
                             cache_data_wr_r <= cache_data_wr;
@@ -279,16 +279,19 @@ always_ff @(posedge clk or posedge rst) begin
                 end
                 //figure out logic for when new read/write requests come in
                 if(cache_rd | cache_wr) begin
+                    //registered sram outputs
                     valid_out <= valid_array[index];
                     dirty_out <= dirty_array[index];
                     tag_out <= tag_array[index];
                     data_out <= word_array[index][word_offset];
 
+                    //cache address needs to be delayed by a cycle for timing
                     address_tag_r <= address_tag;
                     index_r <= index;
                     word_offset_r <= word_offset;
                     byte_offset_r <= byte_offset;
 
+                    //same with the cache control signals
                     cache_rd_r <= cache_rd;
                     cache_wr_r <= cache_wr;
                     cache_data_wr_r <= cache_data_wr;
